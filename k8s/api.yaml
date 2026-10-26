@@ -1,0 +1,55 @@
+# Works on EKS and OpenShift: no fixed UID (OpenShift assigns one), non-root, read-only root filesystem.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-api
+  labels: {app: payments, component: api}
+spec:
+  replicas: 3
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector:
+    matchLabels: {app: payments, component: api}
+  template:
+    metadata:
+      labels: {app: payments, component: api}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8000", prometheus.io/path: /metrics}
+    spec:
+      securityContext: {runAsNonRoot: true}
+      initContainers:
+        - name: migrate
+          image: ghcr.io/mayhurjoker007/payment-processing-api:latest
+          command: ["alembic", "upgrade", "head"]
+          envFrom: [{secretRef: {name: payments}}]
+      containers:
+        - name: api
+          image: ghcr.io/mayhurjoker007/payment-processing-api:latest
+          ports: [{containerPort: 8000}]
+          envFrom: [{configMapRef: {name: payments}}, {secretRef: {name: payments}}]
+          readinessProbe: {httpGet: {path: /readyz, port: 8000}, periodSeconds: 5, failureThreshold: 2}
+          livenessProbe: {httpGet: {path: /healthz, port: 8000}, periodSeconds: 15}
+          resources:
+            requests: {cpu: 200m, memory: 192Mi}
+            limits: {memory: 384Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-api
+spec:
+  selector: {app: payments, component: api}
+  ports: [{port: 80, targetPort: 8000}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payments-api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app: payments, component: api}

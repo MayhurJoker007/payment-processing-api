@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payments
+data:
+  REDIS_URL: redis://payments-redis:6379/0
+  PAYMENT_MAX_ATTEMPTS: "5"
+  PAYMENT_CLAIM_IDLE_MS: "30000"
+  PAYMENT_STUCK_AFTER_SECONDS: "300"
+  LOG_LEVEL: INFO
+---
+# Placeholder. In a real cluster this is created from AWS Secrets Manager or Vault and never committed.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: payments
+type: Opaque
+stringData:
+  DATABASE_URL: postgresql://payments:replace-me@payments-db:5432/payments
+  MERCHANT_API_KEYS: demo-shop:replace-me

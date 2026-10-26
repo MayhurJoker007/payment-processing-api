@@ -1,0 +1,42 @@
+x-app: &app
+  build: .
+  environment:
+    DATABASE_URL: postgresql://payments:payments@db:5432/payments
+    REDIS_URL: redis://redis:6379/0
+    MERCHANT_API_KEYS: demo-shop:test_key_demo_shop
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD: payments
+      POSTGRES_DB: payments
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "payments"]
+      interval: 2s
+      retries: 15
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+  api:
+    <<: *app
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+  relay:
+    <<: *app
+    command: python -m app.worker relay
+  processor:
+    <<: *app
+    command: python -m app.worker process
+    deploy:
+      replicas: 2
+  reaper:
+    <<: *app
+    command: python -m app.worker reaper

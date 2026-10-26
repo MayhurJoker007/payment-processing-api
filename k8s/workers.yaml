@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-processor
+  labels: {app: payments, component: processor}
+spec:
+  # one consumer group: replicas share the messages, and messages held by a pod that died are reclaimed
+  replicas: 3
+  selector:
+    matchLabels: {app: payments, component: processor}
+  template:
+    metadata:
+      labels: {app: payments, component: processor}
+    spec:
+      securityContext: {runAsNonRoot: true}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: processor
+          image: ghcr.io/mayhurjoker007/payment-processing-api:latest
+          command: ["python", "-m", "app.worker", "process"]
+          envFrom: [{configMapRef: {name: payments}}, {secretRef: {name: payments}}]
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 256Mi}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+# One relay and one reaper are enough; both are safe to run twice if a rollout overlaps.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-relay
+  labels: {app: payments, component: relay}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: payments, component: relay}
+  template:
+    metadata:
+      labels: {app: payments, component: relay}
+    spec:
+      securityContext: {runAsNonRoot: true}
+      containers:
+        - name: relay
+          image: ghcr.io/mayhurjoker007/payment-processing-api:latest
+          command: ["python", "-m", "app.worker", "relay"]
+          envFrom: [{configMapRef: {name: payments}}, {secretRef: {name: payments}}]
+          resources: {requests: {cpu: 50m, memory: 96Mi}, limits: {memory: 192Mi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-reaper
+  labels: {app: payments, component: reaper}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: payments, component: reaper}
+  template:
+    metadata:
+      labels: {app: payments, component: reaper}
+    spec:
+      securityContext: {runAsNonRoot: true}
+      containers:
+        - name: reaper
+          image: ghcr.io/mayhurjoker007/payment-processing-api:latest
+          command: ["python", "-m", "app.worker", "reaper"]
+          envFrom: [{configMapRef: {name: payments}}, {secretRef: {name: payments}}]
+          resources: {requests: {cpu: 20m, memory: 96Mi}, limits: {memory: 192Mi}}
